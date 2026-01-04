@@ -50,7 +50,7 @@ let awesome =
 
 let thing = "thing"
 
-let transform = (x, y) => x ++ Js.Float.toString(y)
+let transform = (x, y) => x ++ Float.toString(y)
 
 let z = transform("hello ", 5.)
 
@@ -63,8 +63,6 @@ let added =
   10 + awesome
 
 open Other
-
-open Hashtbl
 
 @ocaml.doc(" Some more documentation about this ")
 let awesome = x => x + 2
@@ -93,14 +91,12 @@ let someFunction = (memorableName, {contents}) => {
 
 let z = 10
 
-let z = find
-
 let z = later
 
 let m = Other.later
 
 for _index in 0 to 10 {
-  print_endline("hellO")
+  Console.log("hellO")
 }
 
 module OneOneOneOne = {
@@ -170,4 +166,3 @@ type lockfile = {
   pastVersions: Belt.HashMap.Int.t<list<(shortReference, int)>>,
   current: list<(shortReference, int)>,
 }
-

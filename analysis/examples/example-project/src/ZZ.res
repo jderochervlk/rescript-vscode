@@ -15,10 +15,14 @@ let d = <M x="abc" />
 
 module J = {
   @react.component
-  export make = (~children: React.element) => React.null
+  let make = (~children: React.element) => React.null
 }
 
-let z = <J> {React.string("")} {React.string("")} </J>
+let z =
+  <J>
+    {React.string("")}
+    {React.string("")}
+  </J>
 
 type inline =
   | A({x: int, y: string})
@@ -85,7 +89,7 @@ let v1 = V1
 
 module DoubleNested = ModuleWithDocComment.Nested.NestedAgain
 
-let uncurried = (. x) => x + 1
+let uncurried = x => x + 1
 
 module Inner = {
   type tInner = int
@@ -107,7 +111,7 @@ module HoverInsideModuleWithComponent = {
 }
 
 module Lib = {
-  let foo = (~age, ~name) => name ++ string_of_int(age)
+  let foo = (~age, ~name) => name ++ Int.toString(age)
   let next = (~number=0, ~year) => number + year
 }
 
@@ -122,24 +126,23 @@ module Dep: {
   let customDouble2 = foo => foo * 2
 }
 
-let cc = Dep.customDouble(11)
+let customDouble = foo => foo * 2
+let cc = customDouble(11)
 
 module O = {
   module Comp = {
     @react.component
     let make = (~first="", ~kas=11, ~foo=3, ~second, ~v) =>
-      React.string(first ++ second ++ string_of_int(foo))
+      React.string(first ++ second ++ Int.toString(foo))
   }
 }
 
 let comp = <O.Comp key="12" second="abcc" v=12 />
 
-let lll = List.make(3, 4)
+let lll = List.make(~length=3, 4)
 
 let abc = "abc"
 
 let arr = [1, 2, 3]
 
 let some7 = Some(7)
-
-

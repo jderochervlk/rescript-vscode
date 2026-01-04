@@ -1,0 +1,18 @@
+{
+  "name": "tryit",
+  "sources": "src",
+  "compiler-flags": [],
+  "warnings": {
+    "number": "-32-26-27-33"
+  },
+  "dependencies": ["@rescript/react"],
+  "jsx": {
+    "version": 4
+  },
+  "namespace": "my-namespace",
+  "package-specs": {
+    "module": "esmodule",
+    "in-source": true,
+    "suffix": ".res.js"
+  }
+}

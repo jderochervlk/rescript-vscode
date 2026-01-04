@@ -27,4 +27,3 @@ let oo = {person: z, height: 34.2}
 let show = o => {
   let m = o.height
 }
-

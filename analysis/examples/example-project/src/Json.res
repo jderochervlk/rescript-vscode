@@ -32,6 +32,8 @@
  * @doc Infix
  ")
 
+external parseFloat: string => float = "parseFloat"
+
 type rec t =
   | String(string)
   | Number(float)
@@ -42,9 +44,9 @@ type rec t =
   | Null
 
 let string_of_number = f => {
-  let s = Js.Float.toString(f)
-  if String.get(s, String.length(s) - 1) == '.' {
-    String.sub(s, 0, String.length(s) - 1)
+  let s = Float.toString(f)
+  if String.get(s, String.length(s) - 1) == Some(".") {
+    String.slice(s, ~start=0, ~end=String.length(s) - 1)
   } else {
     s
   }
@@ -135,23 +137,24 @@ module Infix = {
 
 let escape = text => {
   let ln = String.length(text)
-  let buf = Buffer.create(ln)
-  let rec loop = i =>
+  let rec loop = (i, acc) =>
     if i < ln {
-      switch String.get(text, i) {
-      | '\012' => Buffer.add_string(buf, "\\f")
-      | '\\' => Buffer.add_string(buf, "\\\\")
-      | '"' => Buffer.add_string(buf, "\\\"")
-      | '\n' => Buffer.add_string(buf, "\\n")
-      | '\b' => Buffer.add_string(buf, "\\b")
-      | '\r' => Buffer.add_string(buf, "\\r")
-      | '\t' => Buffer.add_string(buf, "\\t")
-      | c => Buffer.add_char(buf, c)
+      let next = switch String.get(text, i) {
+      | Some("\x0c") => acc ++ "\\f"
+      | Some("\\") => acc ++ "\\\\"
+      | Some("\"") => acc ++ "\\\""
+      | Some("\n") => acc ++ "\\n"
+      | Some("\b") => acc ++ "\\b"
+      | Some("\r") => acc ++ "\\r"
+      | Some("\t") => acc ++ "\\t"
+      | Some(c) => acc ++ c
+      | None => acc
       }
-      loop(i + 1)
+      loop(i + 1, next)
+    } else {
+      acc
     }
-  loop(0)
-  Buffer.contents(buf)
+  loop(0, "")
 }
 
 @ocaml.doc(" ```
@@ -165,54 +168,76 @@ let rec stringify = t =>
   switch t {
   | String(value) => "\"" ++ (escape(value) ++ "\"")
   | Number(num) => string_of_number(num)
-  | Array(items) => "[" ++ (String.concat(", ", List.map(items, stringify)) ++ "]")
-  | Object(items) =>
-    "{" ++
-    (String.concat(
-      ", ",
-      List.map(items, ((k, v)) => "\"" ++ (String.escaped(k) ++ ("\": " ++ stringify(v)))),
-    ) ++
-    "}")
+  | Array(items) => {
+      let rec join = (items, sep) =>
+        switch items {
+        | list{} => ""
+        | list{x} => x
+        | list{x, ...rest} => x ++ sep ++ join(rest, sep)
+        }
+      let parts = List.map(items, stringify)
+      "[" ++ join(parts, ", ") ++ "]"
+    }
+  | Object(items) => {
+      let rec join = (items, sep) =>
+        switch items {
+        | list{} => ""
+        | list{x} => x
+        | list{x, ...rest} => x ++ sep ++ join(rest, sep)
+        }
+      let parts = List.map(items, ((k, v)) => "\"" ++ (escape(k) ++ ("\": " ++ stringify(v))))
+      "{" ++ join(parts, ", ") ++ "}"
+    }
   | True => "true"
   | False => "false"
   | Null => "null"
   }
 
 let white = n => {
-  let buffer = Buffer.create(n)
-  for _ in 0 to n - 1 {
-    Buffer.add_char(buffer, ' ')
-  }
-  Buffer.contents(buffer)
+  let rec loop = (i, acc) =>
+    if i < n {
+      loop(i + 1, acc ++ " ")
+    } else {
+      acc
+    }
+  loop(0, "")
 }
 
-let rec stringifyPretty = (~indent=0, t) =>
+let rec stringifyPretty = (~indent=0, t) => {
+  let rec join = (items, sep) =>
+    switch items {
+    | list{} => ""
+    | list{x} => x
+    | list{x, ...rest} => x ++ sep ++ join(rest, sep)
+    }
   switch t {
   | String(value) => "\"" ++ (escape(value) ++ "\"")
   | Number(num) => string_of_number(num)
   | Array(list{}) => "[]"
-  | Array(items) =>
-    "[\n" ++
-    (white(indent) ++
-    (String.concat(",\n" ++ white(indent), List.map(items, stringifyPretty(~indent=indent + 2))) ++
-    ("\n" ++
-    (white(indent) ++ "]"))))
+  | Array(items) => {
+      let parts = List.map(items, item => stringifyPretty(~indent=indent + 2, item))
+      "[\n" ++
+      white(indent + 2) ++
+      join(parts, ",\n" ++ white(indent + 2)) ++
+      "\n" ++
+      white(indent) ++ "]"
+    }
   | Object(list{}) => "{}"
-  | Object(items) =>
-    "{\n" ++
-    (white(indent) ++
-    (String.concat(
-      ",\n" ++ white(indent),
-      List.map(items, ((k, v)) =>
-        "\"" ++ (String.escaped(k) ++ ("\": " ++ stringifyPretty(~indent=indent + 2, v)))
-      ),
-    ) ++
-    ("\n" ++
-    (white(indent) ++ "}"))))
+  | Object(items) => {
+      let parts = List.map(items, ((k, v)) =>
+        "\"" ++ (escape(k) ++ ("\": " ++ stringifyPretty(~indent=indent + 2, v)))
+      )
+      "{\n" ++
+      white(indent + 2) ++
+      join(parts, ",\n" ++ white(indent + 2)) ++
+      "\n" ++
+      white(indent) ++ "}"
+    }
   | True => "true"
   | False => "false"
   | Null => "null"
   }
+}
 
 let unwrap = (message, t) =>
   switch t {
@@ -229,12 +254,12 @@ module Parser = {
         if last_pos == 0 && !keep_empty {
           acc
         } else {
-          list{String.sub(str, 0, last_pos), ...acc}
+          list{String.slice(str, ~start=0, ~end=last_pos), ...acc}
         }
       } else if is_delim(String.get(str, pos)) {
         let new_len = last_pos - pos - 1
         if new_len != 0 || keep_empty {
-          let v = String.sub(str, pos + 1, new_len)
+          let v = String.slice(str, ~start=pos + 1, ~end=pos + 1 + new_len)
           loop(list{v, ...acc}, pos, pos - 1)
         } else {
           loop(acc, pos, pos - 1)
@@ -245,19 +270,27 @@ module Parser = {
     loop(list{}, len, len - 1)
   }
   let fail = (text, pos, message) => {
-    let pre = String.sub(text, 0, pos)
-    let lines = split_by(c => c == '\n', pre)
+    let pre = String.slice(text, ~start=0, ~end=pos)
+    let lines = split_by(c => c == Some("\n"), pre)
     let count = List.length(lines)
-    let last = count > 0 ? List.getExn(lines, count - 1) : ""
+    let last = count > 0 ? List.getOrThrow(lines, count - 1) : ""
     let col = String.length(last) + 1
     let line = List.length(lines)
-    let string = Printf.sprintf("Error \"%s\" at %d:%d -> %s\n", message, line, col, last)
+    let string =
+      "Error \"" ++
+      message ++
+      "\" at " ++
+      Int.toString(line) ++
+      ":" ++
+      Int.toString(col) ++
+      " -> " ++
+      last ++ "\n"
     failwith(string)
   }
   let rec skipToNewline = (text, pos) =>
     if pos >= String.length(text) {
       pos
-    } else if String.get(text, pos) == '\n' {
+    } else if String.get(text, pos) == Some("\n") {
       pos + 1
     } else {
       skipToNewline(text, pos + 1)
@@ -265,7 +298,7 @@ module Parser = {
   let stringTail = text => {
     let len = String.length(text)
     if len > 1 {
-      String.sub(text, 1, len - 1)
+      String.slice(text, ~start=1, ~end=len)
     } else {
       ""
     }
@@ -273,7 +306,7 @@ module Parser = {
   let rec skipToCloseMultilineComment = (text, pos) =>
     if pos + 1 >= String.length(text) {
       failwith("Unterminated comment")
-    } else if String.get(text, pos) == '*' && String.get(text, pos + 1) == '/' {
+    } else if String.get(text, pos) == Some("*") && String.get(text, pos + 1) == Some("/") {
       pos + 2
     } else {
       skipToCloseMultilineComment(text, pos + 1)
@@ -281,43 +314,36 @@ module Parser = {
   let rec skipWhite = (text, pos) =>
     if (
       pos < String.length(text) &&
-        (String.get(text, pos) == ' ' ||
-          (String.get(text, pos) == '\t' ||
-          (String.get(text, pos) == '\n' || String.get(text, pos) == '\r')))
+        (String.get(text, pos) == Some(" ") ||
+          (String.get(text, pos) == Some("\t") ||
+          (String.get(text, pos) == Some("\n") || String.get(text, pos) == Some("\r"))))
     ) {
       skipWhite(text, pos + 1)
     } else {
       pos
     }
   let parseString = (text, pos) => {
-    /* let i = ref(pos); */
-    let buffer = Buffer.create(String.length(text))
     let ln = String.length(text)
-    let rec loop = i =>
+    let rec loop = (i, acc) =>
       i >= ln
         ? fail(text, i, "Unterminated string")
         : switch String.get(text, i) {
-          | '"' => i + 1
-          | '\\' =>
+          | Some("\"") => (i + 1, acc)
+          | Some("\\") =>
             i + 1 >= ln
               ? fail(text, i, "Unterminated string")
               : switch String.get(text, i + 1) {
-                | '/' =>
-                  Buffer.add_char(buffer, '/')
-                  loop(i + 2)
-                | 'f' =>
-                  Buffer.add_char(buffer, '\012')
-                  loop(i + 2)
+                | Some("/") => loop(i + 2, acc ++ "/")
+                | Some("f") => loop(i + 2, acc ++ "\x0c")
                 | _ =>
-                  Buffer.add_string(buffer, Scanf.unescaped(String.sub(text, i, 2)))
-                  loop(i + 2)
+                  let escaped = String.slice(text, ~start=i, ~end=i + 2)
+                  loop(i + 2, acc ++ escaped)
                 }
-          | c =>
-            Buffer.add_char(buffer, c)
-            loop(i + 1)
+          | Some(c) => loop(i + 1, acc ++ c)
+          | None => (i, acc)
           }
-    let final = loop(pos)
-    (Buffer.contents(buffer), final)
+    let (final, result) = loop(pos, "")
+    (result, final)
   }
   let parseDigits = (text, pos) => {
     let len = String.length(text)
@@ -326,7 +352,17 @@ module Parser = {
         i
       } else {
         switch String.get(text, i) {
-        | '0' .. '9' => loop(i + 1)
+        | Some("0")
+        | Some("1")
+        | Some("2")
+        | Some("3")
+        | Some("4")
+        | Some("5")
+        | Some("6")
+        | Some("7")
+        | Some("8")
+        | Some("9") =>
+          loop(i + 1)
         | _ => i
         }
       }
@@ -334,7 +370,7 @@ module Parser = {
   }
   let parseWithDecimal = (text, pos) => {
     let pos = parseDigits(text, pos)
-    if pos < String.length(text) && String.get(text, pos) == '.' {
+    if pos < String.length(text) && String.get(text, pos) == Some(".") {
       let pos = parseDigits(text, pos + 1)
       pos
     } else {
@@ -344,10 +380,10 @@ module Parser = {
   let parseNumber = (text, pos) => {
     let pos = parseWithDecimal(text, pos)
     let ln = String.length(text)
-    if pos < ln - 1 && (String.get(text, pos) == 'E' || String.get(text, pos) == 'e') {
+    if pos < ln - 1 && (String.get(text, pos) == Some("E") || String.get(text, pos) == Some("e")) {
       let pos = switch String.get(text, pos + 1) {
-      | '-'
-      | '+' =>
+      | Some("-")
+      | Some("+") =>
         pos + 2
       | _ => pos + 1
       }
@@ -357,22 +393,23 @@ module Parser = {
     }
   }
   let parseNegativeNumber = (text, pos) => {
-    let final = if String.get(text, pos) == '-' {
+    let final = if String.get(text, pos) == Some("-") {
       parseNumber(text, pos + 1)
     } else {
       parseNumber(text, pos)
     }
-    (Number(float_of_string(String.sub(text, pos, final - pos))), final)
+    let numStr = String.slice(text, ~start=pos, ~end=final)
+    (Number(parseFloat(numStr)), final)
   }
   let expect = (char, text, pos, message) =>
-    if String.get(text, pos) != char {
+    if String.get(text, pos) != Some(char) {
       fail(text, pos, "Expected: " ++ message)
     } else {
       pos + 1
     }
   let parseComment: 'a. (string, int, (string, int) => 'a) => 'a = (text, pos, next) =>
-    if String.get(text, pos) != '/' {
-      if String.get(text, pos) == '*' {
+    if String.get(text, pos) != Some("/") {
+      if String.get(text, pos) == Some("*") {
         next(text, skipToCloseMultilineComment(text, pos + 1))
       } else {
         failwith("Invalid syntax")
@@ -381,10 +418,10 @@ module Parser = {
       next(text, skipToNewline(text, pos + 1))
     }
   let maybeSkipComment = (text, pos) =>
-    if pos < String.length(text) && String.get(text, pos) == '/' {
-      if pos + 1 < String.length(text) && String.get(text, pos + 1) == '/' {
+    if pos < String.length(text) && String.get(text, pos) == Some("/") {
+      if pos + 1 < String.length(text) && String.get(text, pos + 1) == Some("/") {
         skipToNewline(text, pos + 1)
-      } else if pos + 1 < String.length(text) && String.get(text, pos + 1) == '*' {
+      } else if pos + 1 < String.length(text) && String.get(text, pos + 1) == Some("*") {
         skipToCloseMultilineComment(text, pos + 1)
       } else {
         fail(text, pos, "Invalid synatx")
@@ -396,7 +433,7 @@ module Parser = {
     if pos == String.length(text) {
       pos
     } else {
-      let n = skipWhite(text, pos) |> maybeSkipComment(text)
+      let n = maybeSkipComment(text, skipWhite(text, pos))
       if n > pos {
         skip(text, n)
       } else {
@@ -408,37 +445,46 @@ module Parser = {
       fail(text, pos, "Reached end of file without being done parsing")
     } else {
       switch String.get(text, pos) {
-      | '/' => parseComment(text, pos + 1, parse)
-      | '[' => parseArray(text, pos + 1)
-      | '{' => parseObject(text, pos + 1)
-      | 'n' =>
-        if String.sub(text, pos, 4) == "null" {
+      | Some("/") => parseComment(text, pos + 1, parse)
+      | Some("[") => parseArray(text, pos + 1)
+      | Some("{") => parseObject(text, pos + 1)
+      | Some("n") =>
+        if String.slice(text, ~start=pos, ~end=pos + 4) == "null" {
           (Null, pos + 4)
         } else {
           fail(text, pos, "unexpected character")
         }
-      | 't' =>
-        if String.sub(text, pos, 4) == "true" {
+      | Some("t") =>
+        if String.slice(text, ~start=pos, ~end=pos + 4) == "true" {
           (True, pos + 4)
         } else {
           fail(text, pos, "unexpected character")
         }
-      | 'f' =>
-        if String.sub(text, pos, 5) == "false" {
+      | Some("f") =>
+        if String.slice(text, ~start=pos, ~end=pos + 5) == "false" {
           (False, pos + 5)
         } else {
           fail(text, pos, "unexpected character")
         }
-      | '\n'
-      | '\t'
-      | ' '
-      | '\r' =>
+      | Some("\n")
+      | Some("\t")
+      | Some(" ")
+      | Some("\r") =>
         parse(text, skipWhite(text, pos))
-      | '"' =>
+      | Some("\"") =>
         let (s, pos) = parseString(text, pos + 1)
         (String(s), pos)
-      | '-'
-      | '0' .. '9' =>
+      | Some("-")
+      | Some("0")
+      | Some("1")
+      | Some("2")
+      | Some("3")
+      | Some("4")
+      | Some("5")
+      | Some("6")
+      | Some("7")
+      | Some("8")
+      | Some("9") =>
         parseNegativeNumber(text, pos)
       | _ => fail(text, pos, "unexpected character")
       }
@@ -448,22 +494,22 @@ module Parser = {
     let (value, pos) = parse(text, pos)
     let pos = skip(text, pos)
     switch String.get(text, pos) {
-    | ',' =>
+    | Some(",") =>
       let pos = skip(text, pos + 1)
-      if String.get(text, pos) == ']' {
+      if String.get(text, pos) == Some("]") {
         (list{value}, pos + 1)
       } else {
         let (rest, pos) = parseArrayValue(text, pos)
         (list{value, ...rest}, pos)
       }
-    | ']' => (list{value}, pos + 1)
+    | Some("]") => (list{value}, pos + 1)
     | _ => fail(text, pos, "unexpected character")
     }
   }
   and parseArray = (text, pos) => {
     let pos = skip(text, pos)
     switch String.get(text, pos) {
-    | ']' => (Array(list{}), pos + 1)
+    | Some("]") => (Array(list{}), pos + 1)
     | _ =>
       let (items, pos) = parseArrayValue(text, pos)
       (Array(items), pos)
@@ -471,24 +517,24 @@ module Parser = {
   }
   and parseObjectValue = (text, pos) => {
     let pos = skip(text, pos)
-    if String.get(text, pos) != '"' {
+    if String.get(text, pos) != Some("\"") {
       fail(text, pos, "Expected string")
     } else {
       let (key, pos) = parseString(text, pos + 1)
       let pos = skip(text, pos)
-      let pos = expect(':', text, pos, "Colon")
+      let pos = expect(":", text, pos, "Colon")
       let (value, pos) = parse(text, pos)
       let pos = skip(text, pos)
       switch String.get(text, pos) {
-      | ',' =>
+      | Some(",") =>
         let pos = skip(text, pos + 1)
-        if String.get(text, pos) == '}' {
+        if String.get(text, pos) == Some("}") {
           (list{(key, value)}, pos + 1)
         } else {
           let (rest, pos) = parseObjectValue(text, pos)
           (list{(key, value), ...rest}, pos)
         }
-      | '}' => (list{(key, value)}, pos + 1)
+      | Some("}") => (list{(key, value)}, pos + 1)
       | _ =>
         let (rest, pos) = parseObjectValue(text, pos)
         (list{(key, value), ...rest}, pos)
@@ -497,7 +543,7 @@ module Parser = {
   }
   and parseObject = (text, pos) => {
     let pos = skip(text, pos)
-    if String.get(text, pos) == '}' {
+    if String.get(text, pos) == Some("}") {
       (Object(list{}), pos + 1)
     } else {
       let (pairs, pos) = parseObjectValue(text, pos)
@@ -512,7 +558,8 @@ let parse = text => {
   let pos = Parser.skip(text, pos)
   if pos < String.length(text) {
     failwith(
-      "Extra data after parse finished: " ++ String.sub(text, pos, String.length(text) - pos),
+      "Extra data after parse finished: " ++
+      String.slice(text, ~start=pos, ~end=String.length(text)),
     )
   } else {
     item
@@ -529,7 +576,14 @@ let bind = (v, fn) =>
 @ocaml.doc(" If `t` is an object, get the value associated with the given string key ")
 let get = (key, t) =>
   switch t {
-  | Object(items) => List.getAssoc(items, key, \"=")
+  | Object(items) => {
+      let rec find = items =>
+        switch items {
+        | list{} => None
+        | list{(k, v), ...rest} => k == key ? Some(v) : find(rest)
+        }
+      find(items)
+    }
   | _ => None
   }
 
@@ -538,7 +592,7 @@ let nth = (n, t) =>
   switch t {
   | Array(items) =>
     if n < List.length(items) {
-      Some(List.getExn(items, n))
+      Some(List.getOrThrow(items, n))
     } else {
       None
     }
@@ -601,7 +655,6 @@ let rec parsePath = (keyList, t) =>
  * ```
  ")
 let getPath = (path, t) => {
-  let keys = Parser.split_by(c => c == '.', path)
+  let keys = Parser.split_by(c => c == Some("."), path)
   parsePath(keys, t)
 }
-

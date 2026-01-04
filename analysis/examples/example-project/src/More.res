@@ -10,4 +10,3 @@ let n = 10
 let party = 30
 
 let awesome = 200
-
