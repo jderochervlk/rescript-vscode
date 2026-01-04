@@ -5,7 +5,9 @@
   "warnings": {
     "number": "-32-26-27-33"
   },
-  "dependencies": ["@rescript/react"],
+  "dependencies": [
+    "@rescript/react"
+  ],
   "jsx": {
     "version": 4
   },
