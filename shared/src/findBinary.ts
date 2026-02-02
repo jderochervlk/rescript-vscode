@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as fsAsync from "fs/promises";
 import * as path from "path";
 import * as semver from "semver";
+import * as url from "url";
 
 export type BinaryName =
   | "bsc.exe"
@@ -115,7 +116,7 @@ export const findBinary = async ({
       "..",
       `@rescript/${target}/bin.js`,
     );
-    const { binPaths } = await import(targetPackagePath);
+    const { binPaths } = await import(url.fileURLToPath(targetPackagePath));
 
     if (binary === "bsc.exe") {
       binaryPath = binPaths.bsc_exe;
