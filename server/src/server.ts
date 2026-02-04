@@ -1528,20 +1528,27 @@ async function onMessage(msg: p.Message) {
             // Only watch the root compiler log for each workspace folder.
             // In monorepos, `**/lib/bs/.compiler.log` matches every package and dependency,
             // causing a burst of events per save.
-            globPattern: path.join(projectRootPath, c.compilerLogPartialPath),
+            globPattern: {
+              baseUri: utils.pathToURI(projectRootPath),
+              pattern: c.compilerLogPartialPath,
+            },
             kind: p.WatchKind.Change | p.WatchKind.Create | p.WatchKind.Delete,
           },
           {
-            globPattern: path.join(
-              projectRootPath,
-              "**",
-              c.buildNinjaPartialPath,
-            ),
+            // Watch ninja output
+            globPattern: {
+              baseUri: utils.pathToURI(projectRootPath),
+              pattern: path.join("**", c.buildNinjaPartialPath),
+            },
             kind: p.WatchKind.Change | p.WatchKind.Create | p.WatchKind.Delete,
           },
           {
-            globPattern: `${path.join(projectRootPath, "**", c.compilerDirPartialPath)}/**/*.{cmt,cmi}`,
-            kind: p.WatchKind.Change | p.WatchKind.Delete,
+            // Watch build artifacts
+            globPattern: {
+              baseUri: utils.pathToURI(projectRootPath),
+              pattern: path.join(c.compilerDirPartialPath, "**/*.{cmi,cmt}"),
+            },
+            kind: p.WatchKind.Change | p.WatchKind.Create | p.WatchKind.Delete,
           },
         ],
       );

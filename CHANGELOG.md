@@ -20,6 +20,7 @@
 - Take namespace into account for incremental cleanup. https://github.com/rescript-lang/rescript-vscode/pull/1164
 - Potential race condition in incremental compilation. https://github.com/rescript-lang/rescript-vscode/pull/1167
 - Fix extension crash triggered by incremental compilation. https://github.com/rescript-lang/rescript-vscode/pull/1169
+- Fix file watchers on Windows when using WSL. https://github.com/rescript-lang/rescript-vscode/pull/1178
 
 #### :nail_care: Polish
 
